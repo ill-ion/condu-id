@@ -1,0 +1,189 @@
+---
+export const prerender = false;
+
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+import StatusPill from "@components/StatusPill.astro";
+import DefList from "@components/DefList.astro";
+import DefRow from "@components/DefRow.astro";
+import CodeBlock from "@components/CodeBlock.astro";
+import EmptyState from "@components/EmptyState.astro";
+import { api, ApiClientError } from "@lib/api/client";
+import type { Agent, ReceiptSummary, Server } from "@lib/api/types";
+
+const { slug } = Astro.params as { slug: string };
+
+let server: Server | null = null;
+let agents: Agent[] = [];
+let receipts: ReceiptSummary[] = [];
+let notFound = false;
+
+try {
+  server = await api.getServer(slug);
+  // Fan out the auxiliary fetches in parallel; tolerate individual failures.
+  const [agentsRes, receiptsRes] = await Promise.allSettled([
+    api.listServerAgents(slug, { limit: 8 }),
+    api.listServerReceipts(slug, { limit: 8, anchored: true }),
+  ]);
+  if (agentsRes.status === "fulfilled") agents = agentsRes.value.data;
+  if (receiptsRes.status === "fulfilled") receipts = receiptsRes.value.data;
+} catch (e) {
+  if (e instanceof ApiClientError && e.notFound) {
+    notFound = true;
+    Astro.response.status = 404;
+  } else {
+    throw e;
+  }
+}
+
+if (notFound || !server) {
+  return Astro.redirect("/servers", 302);
+}
+
+const lastActive = server.last_active_at
+  ? new Date(server.last_active_at).toLocaleString()
+  : "never";
+const created = new Date(server.created_at).toLocaleDateString();
+---
+
+<Base
+  title={server.name || server.slug}
+  description={server.description ?? `MCP server ${server.slug} on Condu.ID.`}
+>
+  <div class="container-page py-16">
+    <PageHeader
+      eyebrow="MCP Server"
+      title={server.name || server.slug}
+    >
+      <div class="mt-4 flex flex-wrap items-center gap-3 text-sm font-sans">
+        {server.deactivated ? (
+          <StatusPill status="fail" label="Deactivated" />
+        ) : (
+          <StatusPill status="pass" label="Active" />
+        )}
+        <span class="text-ink-muted">·</span>
+        <span class="text-ink-muted">{server.receipt_count.toLocaleString()} receipts</span>
+        <span class="text-ink-muted">·</span>
+        <span class="text-ink-muted">{server.agent_count.toLocaleString()} agents</span>
+        <span class="text-ink-muted">·</span>
+        <span class="text-ink-muted">last active {lastActive}</span>
+      </div>
+    </PageHeader>
+
+    <div class="grid lg:grid-cols-3 gap-12">
+      {/* ── identity column ─────────────────────────────────────── */}
+      <section class="lg:col-span-2 space-y-10">
+        {server.description && (
+          <p class="text-lg text-ink-soft leading-relaxed max-w-prose">
+            {server.description}
+          </p>
+        )}
+
+        <div>
+          <div class="label mb-3">Identity</div>
+          <DefList>
+            <DefRow label="Slug">
+              <span class="font-mono">{server.slug}</span>
+            </DefRow>
+            <DefRow label="DID">
+              <span class="font-mono break-all">{server.did}</span>
+            </DefRow>
+            <DefRow label="DID document">
+              <a class="link font-mono" href={server.did_document_url}>
+                {server.did_document_url}
+              </a>
+            </DefRow>
+            {server.homepage && (
+              <DefRow label="Homepage">
+                <a class="link" href={server.homepage}>{server.homepage}</a>
+              </DefRow>
+            )}
+            {server.repository && (
+              <DefRow label="Repository">
+                <a class="link" href={server.repository}>{server.repository}</a>
+              </DefRow>
+            )}
+            {server.categories && server.categories.length > 0 && (
+              <DefRow label="Categories">
+                <div class="flex flex-wrap gap-1.5">
+                  {server.categories.map((c) => (
+                    <span class="pill">{c}</span>
+                  ))}
+                </div>
+              </DefRow>
+            )}
+            <DefRow label="Indexed since">{created}</DefRow>
+          </DefList>
+        </div>
+
+        {server.verification_method && server.verification_method.length > 0 && (
+          <div>
+            <div class="label mb-3">Verification methods</div>
+            <div class="space-y-3">
+              {server.verification_method.map((vm) => (
+                <CodeBlock label={vm.type}>
+                  <span>{JSON.stringify(vm, null, 2)}</span>
+                </CodeBlock>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="label">Recent receipts</div>
+            <a class="link text-sm font-sans" href={`/servers/${server.slug}/receipts`}>
+              See all →
+            </a>
+          </div>
+          {receipts.length === 0 ? (
+            <EmptyState title="No anchored receipts yet" />
+          ) : (
+            <div class="border border-rule">
+              {receipts.map((r, i) => (
+                <a
+                  href={`/receipts/${r.id}`}
+                  class={`flex items-center gap-4 px-4 py-3 no-underline hover:bg-paper-dark ${i > 0 ? "border-t border-rule" : ""}`}
+                >
+                  <div class="font-mono text-xs text-ink-muted w-32 truncate">{r.id}</div>
+                  <div class="flex-1 text-sm text-ink truncate">
+                    {r.action_type}
+                    {r.agent_slug && (
+                      <span class="text-ink-muted"> · {r.agent_slug}</span>
+                    )}
+                  </div>
+                  <StatusPill status={r.anchored ? "pass" : "skipped"} label={r.anchored ? "Anchored" : "Pending"} />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── agents sidebar ─────────────────────────────────────── */}
+      <aside>
+        <div class="label mb-3">Agents under this server</div>
+        {agents.length === 0 ? (
+          <EmptyState title="No agents registered" body="Agents appear here once they emit at least one receipt under this server." />
+        ) : (
+          <ul class="border border-rule">
+            {agents.map((a, i) => (
+              <li class={i > 0 ? "border-t border-rule" : ""}>
+                <a href={`/agents/${a.slug}`} class="block px-4 py-3 no-underline hover:bg-paper-dark">
+                  <div class="font-serif text-base text-ink truncate">{a.name || a.local_id || a.slug}</div>
+                  <div class="font-mono text-xs text-ink-muted truncate mt-1">{a.did}</div>
+                  <div class="text-xs text-ink-muted mt-2">
+                    {a.receipt_count.toLocaleString()} receipts
+                  </div>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+        <a class="btn-ghost mt-4 w-full" href={`/servers/${server.slug}/agents`}>
+          All agents →
+        </a>
+      </aside>
+    </div>
+  </div>
+</Base>

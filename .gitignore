@@ -1,0 +1,30 @@
+# Node
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Astro
+.astro
+dist/
+.output/
+
+# Env files (template is .env.example)
+.env
+.env.local
+.env.*.local
+
+# Cloudflare
+.wrangler
+wrangler.toml.local
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

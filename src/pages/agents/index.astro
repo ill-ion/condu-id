@@ -1,0 +1,70 @@
+---
+export const prerender = false;
+
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+import EmptyState from "@components/EmptyState.astro";
+import { api } from "@lib/api/client";
+import type { Agent, Server } from "@lib/api/types";
+
+// The API doesn't have a flat /v1/agents list — agents only exist under
+// servers. We compose a "recently active across all servers" view by
+// pulling top servers and their first page of agents. Good enough for
+// the demo; full pagination lives under each server's /agents.
+let allAgents: Agent[] = [];
+
+try {
+  const servers = await api.listServers({ limit: 12, has_receipts: true });
+  const agentLists = await Promise.allSettled(
+    servers.data.map((s: Server) => api.listServerAgents(s.slug, { limit: 5 }))
+  );
+  for (const r of agentLists) {
+    if (r.status === "fulfilled") {
+      allAgents.push(...r.value.data);
+    }
+  }
+  // Sort by last_active desc for the directory feel.
+  allAgents.sort((a, b) => {
+    const at = a.last_active_at ? Date.parse(a.last_active_at) : 0;
+    const bt = b.last_active_at ? Date.parse(b.last_active_at) : 0;
+    return bt - at;
+  });
+} catch {
+  allAgents = [];
+}
+---
+
+<Base title="Agents" description="Every AI agent indexed by Condu.ID.">
+  <div class="container-page py-16">
+    <PageHeader
+      eyebrow="Directory"
+      title="Agents"
+      subtitle="A composite view of recently-active agents across the indexed servers. Each row is an individual AI agent identity, scoped to its parent server."
+    />
+
+    {allAgents.length === 0 ? (
+      <EmptyState
+        title="No active agents yet"
+        body="Agents register automatically when they emit their first signed receipt under a Condu.ID-indexed server."
+      />
+    ) : (
+      <div class="grid md:grid-cols-2 gap-px bg-rule border border-rule">
+        {allAgents.slice(0, 60).map((a) => (
+          <a
+            href={`/agents/${a.slug}`}
+            class="bg-paper hover:bg-paper-dark transition-colors p-5 no-underline flex flex-col gap-2"
+          >
+            <div class="font-serif text-lg text-ink leading-tight">
+              {a.name || a.local_id || a.slug}
+            </div>
+            <div class="font-mono text-xs text-ink-muted truncate">{a.did}</div>
+            <div class="mt-auto pt-3 flex items-center justify-between text-xs text-ink-muted font-sans">
+              <span>parent: {a.server_slug}</span>
+              <span>{a.receipt_count.toLocaleString()} receipts</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    )}
+  </div>
+</Base>

@@ -1,0 +1,49 @@
+---
+/**
+ * Status pill — colored chip for a verify-step status.
+ *
+ * Usage:
+ *   <StatusPill status="pass" />     →  green "verified"
+ *   <StatusPill status="fail" />     →  red   "failed"
+ *   <StatusPill status="skipped" />  →  amber "skipped"
+ *   <StatusPill status="not_applicable" />  →  neutral "n/a"
+ */
+interface Props {
+  status: "pass" | "fail" | "skipped" | "not_applicable" | "partial";
+  /** Override the label text. Default is human-readable form of status. */
+  label?: string;
+}
+
+const { status, label } = Astro.props;
+
+const cls = {
+  pass: "pill-accent",
+  fail: "pill-fail",
+  skipped: "pill-warn",
+  not_applicable: "pill",
+  partial: "pill-warn",
+}[status];
+
+const text =
+  label ??
+  {
+    pass: "Verified",
+    fail: "Failed",
+    skipped: "Pending",
+    not_applicable: "N/A",
+    partial: "Partial",
+  }[status];
+
+const dotColor = {
+  pass: "bg-accent",
+  fail: "bg-fail",
+  skipped: "bg-warn",
+  not_applicable: "bg-ink-faint",
+  partial: "bg-warn",
+}[status];
+---
+
+<span class={cls}>
+  <span class={`inline-block w-1.5 h-1.5 rounded-full ${dotColor}`} aria-hidden="true"></span>
+  {text}
+</span>

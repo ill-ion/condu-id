@@ -1,0 +1,131 @@
+---
+export const prerender = false;
+
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+import StatusPill from "@components/StatusPill.astro";
+import DefList from "@components/DefList.astro";
+import DefRow from "@components/DefRow.astro";
+import EmptyState from "@components/EmptyState.astro";
+import AgentChat from "@components/AgentChat.tsx";
+import { api, ApiClientError } from "@lib/api/client";
+import type { Agent, ReceiptSummary } from "@lib/api/types";
+
+const { slug } = Astro.params as { slug: string };
+
+let agent: Agent | null = null;
+let receipts: ReceiptSummary[] = [];
+
+try {
+  agent = await api.getAgent(slug);
+  const page = await api.listAgentReceipts(slug, { limit: 12 });
+  receipts = page.data;
+} catch (e) {
+  if (e instanceof ApiClientError && e.notFound) {
+    Astro.response.status = 404;
+    return Astro.redirect("/agents", 302);
+  }
+  throw e;
+}
+if (!agent) return Astro.redirect("/agents", 302);
+
+const lastActive = agent.last_active_at
+  ? new Date(agent.last_active_at).toLocaleString()
+  : "never";
+---
+
+<Base title={agent.name || agent.slug} description={`AI agent identity ${agent.did} on Condu.ID.`}>
+  <div class="container-page py-16">
+    <nav class="text-sm font-sans text-ink-muted mb-2">
+      <a class="link" href="/agents">Agents</a>
+      <span class="px-2">/</span>
+      <a class="link" href={`/servers/${agent.server_slug}`}>{agent.server_slug}</a>
+      <span class="px-2">/</span>
+      <span>{agent.local_id || agent.slug}</span>
+    </nav>
+    <PageHeader
+      eyebrow="AI Agent"
+      title={agent.name || agent.slug}
+    >
+      <div class="mt-4 flex flex-wrap items-center gap-3 text-sm font-sans">
+        {agent.deactivated ? (
+          <StatusPill status="fail" label="Deactivated" />
+        ) : (
+          <StatusPill status="pass" label="Active" />
+        )}
+        <span class="text-ink-muted">·</span>
+        <span class="text-ink-muted">{agent.receipt_count.toLocaleString()} receipts</span>
+        <span class="text-ink-muted">·</span>
+        <span class="text-ink-muted">last active {lastActive}</span>
+      </div>
+    </PageHeader>
+
+    <div class="grid lg:grid-cols-3 gap-12">
+      <section class="lg:col-span-2 space-y-10">
+        {agent.description && (
+          <p class="text-lg text-ink-soft leading-relaxed max-w-prose">
+            {agent.description}
+          </p>
+        )}
+
+        <div>
+          <div class="label mb-3">Identity</div>
+          <DefList>
+            <DefRow label="DID">
+              <span class="font-mono break-all">{agent.did}</span>
+            </DefRow>
+            <DefRow label="Parent server DID">
+              <a class="link font-mono break-all" href={`/servers/${agent.server_slug}`}>
+                {agent.parent_did}
+              </a>
+            </DefRow>
+            <DefRow label="DID document">
+              <a class="link font-mono" href={agent.did_document_url}>{agent.did_document_url}</a>
+            </DefRow>
+            <DefRow label="Slug">
+              <span class="font-mono">{agent.slug}</span>
+            </DefRow>
+            <DefRow label="First seen">{new Date(agent.first_seen_at).toLocaleString()}</DefRow>
+          </DefList>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="label">Receipts emitted by this agent</div>
+            <a class="link text-sm font-sans" href={`/agents/${agent.slug}/receipts`}>See all →</a>
+          </div>
+          {receipts.length === 0 ? (
+            <EmptyState title="No receipts yet" />
+          ) : (
+            <div class="border border-rule">
+              {receipts.map((r, i) => (
+                <a
+                  href={`/receipts/${r.id}`}
+                  class={`flex items-center gap-4 px-4 py-3 no-underline hover:bg-paper-dark ${i > 0 ? "border-t border-rule" : ""}`}
+                >
+                  <div class="font-mono text-xs text-ink-muted w-32 truncate">{r.id}</div>
+                  <div class="flex-1 text-sm text-ink truncate">{r.action_type}</div>
+                  <StatusPill status={r.anchored ? "pass" : "skipped"} label={r.anchored ? "Anchored" : "Pending"} />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <aside>
+        <div class="label mb-3">Ask about this agent</div>
+        <p class="text-sm text-ink-muted mb-4 leading-relaxed">
+          Grounded chat — answers are constrained to facts visible in the
+          identity record above. The model will refuse to speculate.
+        </p>
+        <AgentChat
+          client:load
+          agentSlug={agent.slug}
+          agentName={agent.name || agent.slug}
+          agentDID={agent.did}
+        />
+      </aside>
+    </div>
+  </div>
+</Base>

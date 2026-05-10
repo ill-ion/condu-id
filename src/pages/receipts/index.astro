@@ -1,0 +1,106 @@
+---
+export const prerender = false;
+
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+import StatusPill from "@components/StatusPill.astro";
+import EmptyState from "@components/EmptyState.astro";
+import { api } from "@lib/api/client";
+import type { ReceiptSummary } from "@lib/api/types";
+
+const url = new URL(Astro.request.url);
+const cursor = url.searchParams.get("cursor") ?? undefined;
+const anchoredParam = url.searchParams.get("anchored");
+const anchored =
+  anchoredParam === "true" ? true : anchoredParam === "false" ? false : undefined;
+const actionType = url.searchParams.get("action_type") ?? "";
+
+let receipts: ReceiptSummary[] = [];
+let nextCursor: string | null = null;
+let hasMore = false;
+
+try {
+  const page = await api.listReceipts({
+    cursor,
+    limit: 30,
+    anchored,
+    action_type: actionType || undefined,
+  });
+  receipts = page.data;
+  nextCursor = page.pagination.next_cursor;
+  hasMore = page.pagination.has_more;
+} catch {
+  receipts = [];
+}
+---
+
+<Base title="Receipts" description="Every action receipt indexed by Condu.ID.">
+  <div class="container-page py-16">
+    <PageHeader
+      eyebrow="Activity"
+      title="Receipts"
+      subtitle="Every action receipt indexed by Condu.ID, ordered most-recent first. Click into one to re-verify it locally."
+    />
+
+    <div class="mb-6 flex flex-wrap gap-2 items-center text-sm font-sans">
+      <a class={anchored === undefined ? "btn" : "btn-ghost"} href="/receipts">All</a>
+      <a class={anchored === true ? "btn" : "btn-ghost"} href="/receipts?anchored=true">Anchored</a>
+      <a class={anchored === false ? "btn" : "btn-ghost"} href="/receipts?anchored=false">Pending</a>
+      {[
+        { v: "tool_call", label: "Tool calls" },
+        { v: "delegation", label: "Delegations" },
+        { v: "identity_attest", label: "Attestations" },
+      ].map((opt) => (
+        <a
+          class={actionType === opt.v ? "btn" : "btn-ghost"}
+          href={`/receipts?action_type=${opt.v}${anchored !== undefined ? `&anchored=${anchored}` : ""}`}
+        >
+          {opt.label}
+        </a>
+      ))}
+      {(anchored !== undefined || actionType) && (
+        <a class="text-sm text-ink-muted hover:text-ink underline decoration-rule" href="/receipts">Clear</a>
+      )}
+    </div>
+
+    {receipts.length === 0 ? (
+      <EmptyState title="No receipts" body="Try clearing filters." />
+    ) : (
+      <>
+        <div class="border border-rule">
+          {receipts.map((r, i) => (
+            <a
+              href={`/receipts/${r.id}`}
+              class={`grid grid-cols-1 md:grid-cols-[12rem_1fr_auto] gap-4 px-5 py-4 no-underline hover:bg-paper-dark ${i > 0 ? "border-t border-rule" : ""}`}
+            >
+              <div class="font-mono text-xs text-ink-muted truncate">{r.id}</div>
+              <div class="min-w-0">
+                <div class="text-sm text-ink truncate">
+                  {r.action_type}
+                  <span class="text-ink-muted"> · {r.server_slug}</span>
+                  {r.agent_slug && <span class="text-ink-muted"> / {r.agent_slug}</span>}
+                </div>
+                <div class="font-mono text-xs text-ink-muted truncate mt-0.5">{r.signed_by}</div>
+              </div>
+              <div class="flex items-center md:justify-end gap-3">
+                <span class="text-xs text-ink-muted whitespace-nowrap">
+                  {new Date(r.created_at).toLocaleString()}
+                </span>
+                <StatusPill status={r.anchored ? "pass" : "skipped"} label={r.anchored ? "Anchored" : "Pending"} />
+              </div>
+            </a>
+          ))}
+        </div>
+
+        <nav class="mt-8 flex items-center justify-between text-sm font-sans text-ink-muted">
+          <div>{receipts.length} on this page</div>
+          {hasMore && nextCursor && (
+            <a class="btn" href={`/receipts?cursor=${encodeURIComponent(nextCursor)}${anchored !== undefined ? `&anchored=${anchored}` : ""}${actionType ? `&action_type=${actionType}` : ""}`}>
+              Next page →
+            </a>
+          )}
+        </nav>
+      </>
+    )}
+  </div>
+</Base>

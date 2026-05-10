@@ -1,0 +1,31 @@
+{
+  "name": "condu-id",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "check": "astro check && tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@astrojs/cloudflare": "^11.0.4",
+    "@astrojs/preact": "^5.1.2",
+    "@astrojs/tailwind": "^5.1.2",
+    "@cloudflare/workerd-linux-64": "^1.20260510.1",
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.5.0",
+    "@solana/web3.js": "^1.95.4",
+    "astro": "^4.16.7",
+    "preact": "^10.29.1",
+    "tailwindcss": "^3.4.13"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.3"
+  }
+}

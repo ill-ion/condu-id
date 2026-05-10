@@ -1,0 +1,159 @@
+---
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+---
+
+<Base title="About" description="Technical brief: how Condu.ID resolves identities, anchors receipts, and lets you verify everything locally.">
+  <div class="container-page py-20">
+    <div class="max-w-prose mx-auto">
+      <PageHeader
+        eyebrow="Technical brief"
+        title="How Condu.ID works"
+        subtitle="A neutral resolver for AI agent identity. Not a notary, not a registry, not a marketplace. Infrastructure."
+      />
+
+      <section class="space-y-6 text-ink-soft leading-relaxed">
+        <p>
+          Condu.ID is a public, opinion-free name service for AI agents and the
+          MCP servers that host them. It maps a stable decentralized identifier
+          back to its DID document, surfaces the receipts that identifier has
+          signed, and gives you the cryptographic evidence to verify both
+          without trusting our infrastructure.
+        </p>
+
+        <h2 class="font-serif text-2xl text-ink mt-12 mb-3">The identity layer</h2>
+        <p>
+          Every server registered on Condu.ID has a <code class="font-mono text-ink">did:web</code>
+          identifier — a URL-anchored DID whose document lives at a
+          well-known path on the server's own domain. Every agent operating
+          under that server gets a child <code class="font-mono text-ink">did:web</code>,
+          with the parent DID listed as its controller in the DID document.
+        </p>
+        <p>
+          Receipts themselves are signed with <code class="font-mono text-ink">did:key</code> —
+          a self-contained DID method where the public key is recoverable
+          directly from the identifier. That's deliberate: it means the
+          signature on a receipt can be verified even if Condu.ID, the
+          server's domain, and every DNS provider on Earth simultaneously
+          go offline. The key travels with the receipt.
+        </p>
+
+        <h2 class="font-serif text-2xl text-ink mt-12 mb-3">The receipt format</h2>
+        <p>
+          Receipts conform to <a class="link" href="https://rcptprotocol.com">RCPT Protocol</a> —
+          an open spec for verifiable AI agent action receipts. Each receipt
+          declares an action type, a signer, the canonical bytes of the
+          action's input and output, and an Ed25519 signature over the whole
+          envelope.
+        </p>
+        <p>
+          The canonicalization is RFC 8785 (JCS — JSON Canonicalization
+          Scheme). That's the only safe way to canonicalize JSON for
+          signature: stable key order, stable number formatting, stable
+          string escaping. Two implementations following RFC 8785 produce
+          byte-identical output, which is a non-negotiable for
+          cross-language signature verification.
+        </p>
+        <p>
+          The signature itself is Ed25519 per RFC 8032 — over the canonical
+          bytes directly, with no SHA-256 pre-hash. Pre-hashing breaks
+          interoperability with the standard library Ed25519 verifiers, and
+          it breaks the non-repudiation claim. RCPT receipts must be
+          verifiable by `crypto/ed25519` in Go, `cryptography` in Python,
+          and `@noble/ed25519` in TypeScript without special configuration.
+        </p>
+
+        <h2 class="font-serif text-2xl text-ink mt-12 mb-3">The anchor</h2>
+        <p>
+          Receipts are batched into a Merkle tree and the root is written
+          to Solana. Solana isn't load-bearing — the receipt and its
+          Ed25519 signature stand on their own. The anchor adds two
+          properties: a public timestamp (the slot the merkle root landed in)
+          and tamper-evidence (you can prove a receipt was part of a batch
+          recorded before some later event).
+        </p>
+        <p>
+          We chose Solana for cost and confirmation latency. Devnet is fine
+          for development; production batches go to mainnet. The merkle
+          proof shipped with each receipt lets you reconstruct the leaf
+          hash, walk up to the stored root, and check on-chain confirmation
+          yourself.
+        </p>
+
+        <h2 class="font-serif text-2xl text-ink mt-12 mb-3">The verifier</h2>
+        <p>
+          Condu.ID's API has a <code class="font-mono text-ink">/v1/receipts/:id/verify</code>
+          endpoint, but it carries an <code class="font-mono text-ink">authoritative=false</code>
+          flag and a <code class="font-mono text-ink">notice: client-must-verify</code>
+          field. That isn't decoration — it's the architecture. The server
+          will tell you what it thinks, but the answer that counts is the
+          one your browser computes.
+        </p>
+        <p>
+          Every receipt page on this site re-runs five checks locally:
+        </p>
+        <ol class="list-decimal pl-6 space-y-2 marker:text-ink-muted">
+          <li><strong class="text-ink">JCS canonicalization.</strong> Re-encode the receipt body via RFC 8785 and confirm it matches what the server returned.</li>
+          <li><strong class="text-ink">Ed25519 signature.</strong> Recover the signer's public key from <code class="font-mono">did:key</code>, verify the 64-byte signature over the canonical bytes.</li>
+          <li><strong class="text-ink">Delegation chain.</strong> If a delegation block is present, structurally validate it. (Full chain validation lands in v1.1.)</li>
+          <li><strong class="text-ink">Merkle inclusion.</strong> Hash the canonical body, walk the proof's siblings, confirm the computed root matches the stored root.</li>
+          <li><strong class="text-ink">Solana confirmation.</strong> Open a connection to a public Solana RPC <em>directly from your tab</em> and require a finalized confirmation for the anchor signature.</li>
+        </ol>
+        <p>
+          Step five is the one the server cannot do for you in a
+          trustworthy way. If our resolver tells you a transaction is
+          confirmed, you have to trust our resolver. If your browser asks
+          a public Solana RPC and gets back a finalized status, you have
+          to trust the Solana validator set. The latter is a much bigger
+          trust set, and that matters.
+        </p>
+
+        <h2 class="font-serif text-2xl text-ink mt-12 mb-3">Why neutral matters</h2>
+        <p>
+          Condu.ID is intentionally separate from any commercial layer.
+          The same infrastructure that powers a marketplace would
+          discourage a competing marketplace from adopting the identity
+          layer. By keeping resolution and verification neutral, we make
+          it easier for ecosystems that don't trust each other to share
+          the same identity substrate.
+        </p>
+        <p>
+          The protocol is open. The code is public. The verification is
+          done in your browser. If we disappear tomorrow, the receipts
+          you've already collected are still verifiable on someone else's
+          resolver — or with no resolver at all.
+        </p>
+
+        <div class="mt-16 pt-8 border-t border-rule">
+          <div class="label mb-3">References</div>
+          <ul class="space-y-2 text-sm">
+            <li>
+              <a class="link" href="https://www.rfc-editor.org/rfc/rfc8032">RFC 8032</a>
+              — Edwards-Curve Digital Signature Algorithm (EdDSA)
+            </li>
+            <li>
+              <a class="link" href="https://www.rfc-editor.org/rfc/rfc8785">RFC 8785</a>
+              — JSON Canonicalization Scheme (JCS)
+            </li>
+            <li>
+              <a class="link" href="https://www.w3.org/TR/did-core/">W3C DID Core</a>
+              — Decentralized Identifiers
+            </li>
+            <li>
+              <a class="link" href="https://w3c-ccg.github.io/did-method-key/">DID Method: did:key</a>
+              — self-contained DID method
+            </li>
+            <li>
+              <a class="link" href="https://w3c-ccg.github.io/did-method-web/">DID Method: did:web</a>
+              — DNS-anchored DID method
+            </li>
+            <li>
+              <a class="link" href="https://rcptprotocol.com">RCPT Protocol</a>
+              — receipt format spec, SDKs, whitepaper
+            </li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </div>
+</Base>

@@ -1,0 +1,23 @@
+---
+interface Props {
+  eyebrow?: string;
+  title: string;
+  /** Subtitle / lede paragraph. Plain string — for richer markup, omit and use the slot. */
+  subtitle?: string;
+}
+
+const { eyebrow, title, subtitle } = Astro.props;
+---
+
+<header class="mb-10">
+  {eyebrow && <div class="label mb-3">{eyebrow}</div>}
+  <h1 class="text-3xl md:text-4xl font-serif tracking-tight leading-tight">
+    {title}
+  </h1>
+  {subtitle && (
+    <p class="mt-3 max-w-prose text-ink-soft leading-relaxed">
+      {subtitle}
+    </p>
+  )}
+  <slot />
+</header>

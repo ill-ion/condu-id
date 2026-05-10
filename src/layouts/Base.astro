@@ -1,0 +1,110 @@
+---
+import "@/styles/global.css";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Optional canonical path (without origin) for og:url + canonical link. */
+  canonical?: string;
+  /** When true, suppress the global nav (used by full-bleed pages like the splash). */
+  hideNav?: boolean;
+}
+
+const {
+  title,
+  description = "A neutral identity layer for AI agents and MCP servers.",
+  canonical,
+  hideNav = false,
+} = Astro.props;
+
+const fullTitle =
+  title === "Condu.ID" ? "Condu.ID" : `${title} — Condu.ID`;
+
+const canonicalUrl = canonical
+  ? `https://condu.id${canonical}`
+  : `https://condu.id${Astro.url.pathname}`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+
+    <link
+      rel="preconnect"
+      href={import.meta.env.PUBLIC_API_BASE ?? "https://api.condu.id"}
+      crossorigin
+    />
+
+    {/* Charter-style serif via system fallback first. The font stack in
+        tailwind.config.mjs covers the chain. */}
+    <style>
+      /* Keep the fold visible without a flash of styled content on
+         slow connections. */
+      :root { color-scheme: light; }
+    </style>
+  </head>
+  <body class="min-h-screen flex flex-col">
+    {!hideNav && (
+      <header class="border-b border-rule">
+        <div class="container-page py-4 flex items-center justify-between gap-6">
+          <a href="/" class="font-serif text-lg tracking-tight no-underline text-ink">
+            Condu<span class="text-ink-muted">.ID</span>
+          </a>
+          <nav class="flex items-center gap-6 text-sm font-sans text-ink-soft">
+            <a href="/servers" class="hover:text-ink">Servers</a>
+            <a href="/agents" class="hover:text-ink">Agents</a>
+            <a href="/receipts" class="hover:text-ink">Receipts</a>
+            <a href="/anchors" class="hover:text-ink">Anchors</a>
+            <a href="/about" class="hover:text-ink">About</a>
+          </nav>
+        </div>
+      </header>
+    )}
+
+    <main class="flex-1">
+      <slot />
+    </main>
+
+    <footer class="border-t border-rule mt-24">
+      <div class="container-page py-10 grid md:grid-cols-3 gap-8 text-sm font-sans text-ink-muted">
+        <div>
+          <div class="font-serif text-base text-ink mb-2">Condu.ID</div>
+          <p class="leading-relaxed">
+            Neutral resolver for AI agent identity. Built on
+            <a class="link" href="https://rcptprotocol.com">RCPT Protocol</a>,
+            anchored to Solana, verifiable in your browser.
+          </p>
+        </div>
+        <div>
+          <div class="label mb-3">Technical</div>
+          <ul class="space-y-1.5">
+            <li><a class="link" href="https://api.condu.id/v1/health">API status</a></li>
+            <li><a class="link" href="https://github.com/ill-ion/condu-id">Source on GitHub</a></li>
+            <li><a class="link" href="https://rcptprotocol.com">RCPT spec</a></li>
+          </ul>
+        </div>
+        <div>
+          <div class="label mb-3">Operating principle</div>
+          <p class="leading-relaxed italic">
+            The server is convenient. The browser is authoritative. Every
+            verification page recomputes locally before it shows you a result.
+          </p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

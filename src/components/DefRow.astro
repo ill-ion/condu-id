@@ -1,0 +1,12 @@
+---
+interface Props {
+  label: string;
+}
+
+const { label } = Astro.props;
+---
+
+<dt class="label pt-1">{label}</dt>
+<dd class="text-ink leading-relaxed break-words">
+  <slot />
+</dd>

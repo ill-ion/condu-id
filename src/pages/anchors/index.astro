@@ -1,0 +1,90 @@
+---
+export const prerender = false;
+
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+import EmptyState from "@components/EmptyState.astro";
+import { api } from "@lib/api/client";
+import type { Anchor, ReceiptSummary } from "@lib/api/types";
+
+// The API exposes anchors only by merkle_root lookup. We discover roots
+// from recent anchored receipts and dedupe.
+const seenRoots = new Set<string>();
+const roots: string[] = [];
+let receipts: ReceiptSummary[] = [];
+
+try {
+  const page = await api.listReceipts({ limit: 60, anchored: true });
+  receipts = page.data;
+  // The summary doesn't include merkle_root; we resolve via /v1/receipts/:id
+  // for the first N to extract roots. To keep the directory page snappy,
+  // cap to 12 lookups in parallel.
+  const lookups = await Promise.allSettled(
+    receipts.slice(0, 24).map((r) => api.getReceipt(r.id))
+  );
+  for (const lookup of lookups) {
+    if (lookup.status === "fulfilled" && lookup.value.anchor) {
+      const root = lookup.value.anchor.merkle_root;
+      if (!seenRoots.has(root)) {
+        seenRoots.add(root);
+        roots.push(root);
+      }
+    }
+  }
+} catch {
+  // tolerate
+}
+
+// Now fetch each anchor in parallel.
+const anchors: Anchor[] = [];
+const anchorLookups = await Promise.allSettled(
+  roots.slice(0, 16).map((r) => api.getAnchor(r))
+);
+for (const a of anchorLookups) {
+  if (a.status === "fulfilled") anchors.push(a.value);
+}
+anchors.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+---
+
+<Base title="Anchors" description="Solana merkle anchor batches indexed by Condu.ID.">
+  <div class="container-page py-16">
+    <PageHeader
+      eyebrow="Solana"
+      title="Anchors"
+      subtitle="Each batch is a merkle root that Condu.ID's anchoring chain wrote to Solana, attesting to a set of receipts. Click into one to inspect the batch and verify the on-chain confirmation."
+    />
+
+    {anchors.length === 0 ? (
+      <EmptyState
+        title="No anchors yet"
+        body="Anchors appear here once batches of receipts have been written to Solana."
+      />
+    ) : (
+      <div class="border border-rule">
+        {anchors.map((a, i) => (
+          <a
+            href={`/anchors/${a.merkle_root}`}
+            class={`grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-4 px-5 py-4 no-underline hover:bg-paper-dark ${i > 0 ? "border-t border-rule" : ""}`}
+          >
+            <div class="min-w-0">
+              <div class="font-mono text-xs text-ink-muted truncate">{a.merkle_root}</div>
+              <div class="text-sm text-ink mt-1">
+                {a.receipt_count} receipts
+                <span class="text-ink-muted"> · {a.cluster}</span>
+                <span class="text-ink-muted"> · slot {a.solana_slot?.toLocaleString() ?? "—"}</span>
+              </div>
+            </div>
+            <div class="text-xs text-ink-muted whitespace-nowrap">
+              {a.anchored_at ? new Date(a.anchored_at).toLocaleString() : "pending"}
+            </div>
+            <div class="flex items-center">
+              <span class={`pill ${a.status === "anchored" ? "pill-accent" : a.status === "failed" ? "pill-fail" : "pill-warn"}`}>
+                {a.status}
+              </span>
+            </div>
+          </a>
+        ))}
+      </div>
+    )}
+  </div>
+</Base>

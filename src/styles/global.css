@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background: theme("colors.paper.DEFAULT");
+    color: theme("colors.ink.DEFAULT");
+    font-family: theme("fontFamily.serif");
+    font-feature-settings: "kern", "liga", "onum";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    /* Subtle paper grain — keeps it from looking like a SaaS product. */
+    background-image:
+      radial-gradient(
+        rgba(0, 0, 0, 0.018) 1px,
+        transparent 1px
+      );
+    background-size: 24px 24px;
+  }
+  ::selection {
+    background: theme("colors.ink.DEFAULT");
+    color: theme("colors.paper.DEFAULT");
+  }
+  h1, h2, h3, h4 {
+    font-family: theme("fontFamily.serif");
+    font-weight: 600;
+    letter-spacing: -0.011em;
+  }
+  /* Tighter rule lines in tables and dividers — feel like a journal. */
+  hr {
+    border-color: theme("colors.rule");
+  }
+  code, kbd, samp, pre {
+    font-family: theme("fontFamily.mono");
+    font-feature-settings: "calt" 0;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply max-w-page mx-auto px-6 md:px-10;
+  }
+  .container-prose {
+    @apply max-w-prose mx-auto px-6;
+  }
+  .label {
+    @apply text-xs uppercase tracking-[0.16em] text-ink-muted font-sans;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full
+           border border-rule bg-paper-dark
+           text-xs font-sans text-ink-soft;
+  }
+  .pill-accent {
+    @apply pill bg-accent-soft border-accent/40 text-accent;
+  }
+  .pill-warn {
+    @apply pill bg-warn-soft border-warn/40 text-warn;
+  }
+  .pill-fail {
+    @apply pill bg-fail-soft border-fail/40 text-fail;
+  }
+  .card {
+    @apply bg-paper border border-rule;
+  }
+  .link {
+    @apply underline decoration-rule decoration-1 underline-offset-4
+           hover:decoration-ink-soft hover:text-ink transition-colors;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2
+           bg-ink text-paper text-sm font-sans tracking-wide
+           hover:bg-ink-soft transition-colors;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2
+           border border-rule text-ink text-sm font-sans tracking-wide
+           hover:bg-paper-dark transition-colors;
+  }
+}

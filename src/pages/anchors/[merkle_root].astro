@@ -1,0 +1,124 @@
+---
+export const prerender = false;
+
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+import StatusPill from "@components/StatusPill.astro";
+import DefList from "@components/DefList.astro";
+import DefRow from "@components/DefRow.astro";
+import EmptyState from "@components/EmptyState.astro";
+import { api, ApiClientError } from "@lib/api/client";
+import type { Anchor } from "@lib/api/types";
+
+const { merkle_root } = Astro.params as { merkle_root: string };
+
+let anchor: Anchor | null = null;
+try {
+  anchor = await api.getAnchor(merkle_root);
+} catch (e) {
+  if (e instanceof ApiClientError && e.notFound) {
+    Astro.response.status = 404;
+    return Astro.redirect("/anchors", 302);
+  }
+  throw e;
+}
+if (!anchor) return Astro.redirect("/anchors", 302);
+
+const status: "pass" | "fail" | "skipped" =
+  anchor.status === "anchored" ? "pass" : anchor.status === "failed" ? "fail" : "skipped";
+
+// Build the explorer URL if the API didn't already provide one.
+const explorerUrl =
+  anchor.explorer_url ??
+  (anchor.solana_signature
+    ? `https://explorer.solana.com/tx/${anchor.solana_signature}?cluster=${anchor.cluster}`
+    : null);
+---
+
+<Base title={`Anchor ${anchor.merkle_root.slice(0, 12)}…`}>
+  <div class="container-page py-16">
+    <nav class="text-sm font-sans text-ink-muted mb-2">
+      <a class="link" href="/anchors">Anchors</a>
+      <span class="px-2">/</span>
+      <span class="font-mono">{anchor.merkle_root.slice(0, 16)}…</span>
+    </nav>
+    <PageHeader
+      eyebrow="Solana anchor batch"
+      title={`${anchor.receipt_count} receipts`}
+    >
+      <div class="mt-4 flex flex-wrap items-center gap-3 text-sm font-sans">
+        <StatusPill status={status} label={anchor.status[0].toUpperCase() + anchor.status.slice(1)} />
+        <span class="text-ink-muted">·</span>
+        <span class="text-ink-muted">cluster {anchor.cluster}</span>
+        {anchor.anchored_at && (
+          <>
+            <span class="text-ink-muted">·</span>
+            <span class="text-ink-muted">anchored {new Date(anchor.anchored_at).toLocaleString()}</span>
+          </>
+        )}
+      </div>
+    </PageHeader>
+
+    <div class="grid lg:grid-cols-3 gap-12">
+      <section class="lg:col-span-2 space-y-10">
+        <div>
+          <div class="label mb-3">On-chain</div>
+          <DefList>
+            <DefRow label="Merkle root">
+              <span class="font-mono break-all text-xs">{anchor.merkle_root}</span>
+            </DefRow>
+            <DefRow label="Solana cluster">
+              <span class="font-mono">{anchor.cluster}</span>
+            </DefRow>
+            {anchor.solana_signature && (
+              <DefRow label="Tx signature">
+                <span class="font-mono break-all text-xs">{anchor.solana_signature}</span>
+              </DefRow>
+            )}
+            {anchor.solana_slot != null && (
+              <DefRow label="Slot">
+                <span class="font-mono">{anchor.solana_slot.toLocaleString()}</span>
+              </DefRow>
+            )}
+            <DefRow label="Created">{new Date(anchor.created_at).toLocaleString()}</DefRow>
+            {anchor.anchored_at && (
+              <DefRow label="Anchored">{new Date(anchor.anchored_at).toLocaleString()}</DefRow>
+            )}
+            {anchor.attempt_count != null && (
+              <DefRow label="Attempt count">{anchor.attempt_count}</DefRow>
+            )}
+            {anchor.error && (
+              <DefRow label="Last error">
+                <span class="text-fail font-mono text-xs">{anchor.error}</span>
+              </DefRow>
+            )}
+            {explorerUrl && (
+              <DefRow label="Explorer">
+                <a class="link" href={explorerUrl} target="_blank" rel="noopener noreferrer">
+                  Open in Solana Explorer ↗
+                </a>
+              </DefRow>
+            )}
+          </DefList>
+        </div>
+      </section>
+
+      <aside>
+        <div class="label mb-3">Receipts in this batch</div>
+        {anchor.receipt_ids.length === 0 ? (
+          <EmptyState title="Empty batch" />
+        ) : (
+          <ul class="border border-rule">
+            {anchor.receipt_ids.map((id, i) => (
+              <li class={i > 0 ? "border-t border-rule" : ""}>
+                <a href={`/receipts/${id}`} class="block px-4 py-3 no-underline hover:bg-paper-dark">
+                  <div class="font-mono text-xs text-ink-soft truncate">{id}</div>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+    </div>
+  </div>
+</Base>

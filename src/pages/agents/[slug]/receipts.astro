@@ -1,0 +1,86 @@
+---
+export const prerender = false;
+
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+import StatusPill from "@components/StatusPill.astro";
+import EmptyState from "@components/EmptyState.astro";
+import { api, ApiClientError } from "@lib/api/client";
+import type { Agent, ReceiptSummary } from "@lib/api/types";
+
+const { slug } = Astro.params as { slug: string };
+const url = new URL(Astro.request.url);
+const cursor = url.searchParams.get("cursor") ?? undefined;
+
+let agent: Agent | null = null;
+let receipts: ReceiptSummary[] = [];
+let nextCursor: string | null = null;
+let hasMore = false;
+
+try {
+  agent = await api.getAgent(slug);
+  const page = await api.listAgentReceipts(slug, { cursor, limit: 30 });
+  receipts = page.data;
+  nextCursor = page.pagination.next_cursor;
+  hasMore = page.pagination.has_more;
+} catch (e) {
+  if (e instanceof ApiClientError && e.notFound) {
+    Astro.response.status = 404;
+    return Astro.redirect("/agents", 302);
+  }
+  throw e;
+}
+if (!agent) return Astro.redirect("/agents", 302);
+---
+
+<Base title={`Receipts — ${agent.name || agent.slug}`}>
+  <div class="container-page py-16">
+    <nav class="text-sm font-sans text-ink-muted mb-2">
+      <a class="link" href="/agents">Agents</a>
+      <span class="px-2">/</span>
+      <a class="link" href={`/agents/${agent.slug}`}>{agent.name || agent.slug}</a>
+      <span class="px-2">/</span>
+      <span>Receipts</span>
+    </nav>
+    <PageHeader
+      eyebrow="Receipts emitted by"
+      title={agent.name || agent.slug}
+    />
+
+    {receipts.length === 0 ? (
+      <EmptyState title="No receipts yet" />
+    ) : (
+      <>
+        <div class="border border-rule">
+          {receipts.map((r, i) => (
+            <a
+              href={`/receipts/${r.id}`}
+              class={`grid grid-cols-1 md:grid-cols-[12rem_1fr_auto] gap-4 px-5 py-4 no-underline hover:bg-paper-dark ${i > 0 ? "border-t border-rule" : ""}`}
+            >
+              <div class="font-mono text-xs text-ink-muted truncate">{r.id}</div>
+              <div class="min-w-0">
+                <div class="text-sm text-ink truncate">{r.action_type}</div>
+                <div class="font-mono text-xs text-ink-muted truncate mt-0.5">{r.signed_by}</div>
+              </div>
+              <div class="flex items-center md:justify-end gap-3">
+                <span class="text-xs text-ink-muted whitespace-nowrap">
+                  {new Date(r.created_at).toLocaleString()}
+                </span>
+                <StatusPill status={r.anchored ? "pass" : "skipped"} label={r.anchored ? "Anchored" : "Pending"} />
+              </div>
+            </a>
+          ))}
+        </div>
+
+        <nav class="mt-8 flex items-center justify-between text-sm font-sans text-ink-muted">
+          <a class="link" href={`/agents/${agent.slug}`}>← Back to agent</a>
+          {hasMore && nextCursor && (
+            <a class="btn" href={`/agents/${agent.slug}/receipts?cursor=${encodeURIComponent(nextCursor)}`}>
+              Next page →
+            </a>
+          )}
+        </nav>
+      </>
+    )}
+  </div>
+</Base>

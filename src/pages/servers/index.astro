@@ -1,0 +1,158 @@
+---
+export const prerender = false;
+
+import Base from "@layouts/Base.astro";
+import PageHeader from "@components/PageHeader.astro";
+import StatusPill from "@components/StatusPill.astro";
+import EmptyState from "@components/EmptyState.astro";
+import { api, ApiClientError } from "@lib/api/client";
+import type { Server } from "@lib/api/types";
+
+const url = new URL(Astro.request.url);
+const cursor = url.searchParams.get("cursor") ?? undefined;
+const q = url.searchParams.get("q") ?? "";
+const category = url.searchParams.get("category") ?? "";
+const hasReceipts = url.searchParams.get("has_receipts") === "true";
+
+let servers: Server[] = [];
+let nextCursor: string | null = null;
+let hasMore = false;
+let errorMessage: string | null = null;
+
+try {
+  const page = await api.listServers({
+    cursor,
+    limit: 24,
+    q: q || undefined,
+    category: category || undefined,
+    has_receipts: hasReceipts || undefined,
+  });
+  servers = page.data;
+  nextCursor = page.pagination.next_cursor;
+  hasMore = page.pagination.has_more;
+} catch (e) {
+  if (e instanceof ApiClientError) {
+    errorMessage = `${e.code}: ${e.message}`;
+  } else {
+    errorMessage = "Could not reach the resolver.";
+  }
+}
+
+const totalShown = servers.length;
+---
+
+<Base title="Servers" description="Directory of MCP servers indexed by Condu.ID.">
+  <div class="container-page py-16">
+    <PageHeader
+      eyebrow="Directory"
+      title="Servers"
+      subtitle="Every MCP server known to Condu.ID. Each row resolves to a did:web identifier and links through to the agents and receipts that server has emitted."
+    />
+
+    {/* ── filter bar ─────────────────────────────────────────────── */}
+    <form method="get" class="mb-10 flex flex-wrap items-end gap-3 border-y border-rule py-4">
+      <label class="flex-1 min-w-[16rem]">
+        <div class="label mb-1">Search</div>
+        <input
+          type="text"
+          name="q"
+          value={q}
+          placeholder="name, slug, description"
+          class="w-full bg-transparent border-b border-rule py-1.5 px-0 focus:outline-none focus:border-ink"
+        />
+      </label>
+      <label>
+        <div class="label mb-1">Category</div>
+        <input
+          type="text"
+          name="category"
+          value={category}
+          placeholder="any"
+          class="bg-transparent border-b border-rule py-1.5 px-0 focus:outline-none focus:border-ink"
+        />
+      </label>
+      <label class="flex items-center gap-2 pb-1.5">
+        <input type="checkbox" name="has_receipts" value="true" checked={hasReceipts} class="border-rule" />
+        <span class="text-sm font-sans text-ink-soft">With receipts only</span>
+      </label>
+      <button type="submit" class="btn-ghost">Apply</button>
+      {(q || category || hasReceipts) && (
+        <a href="/servers" class="text-sm font-sans text-ink-muted hover:text-ink underline decoration-rule pb-2">
+          Clear
+        </a>
+      )}
+    </form>
+
+    {errorMessage ? (
+      <EmptyState
+        title="Resolver unavailable"
+        body={errorMessage}
+      />
+    ) : servers.length === 0 ? (
+      <EmptyState
+        title="No servers match"
+        body="Try clearing filters or searching a different term."
+      />
+    ) : (
+      <>
+        <div class="border border-rule">
+          {servers.map((s, i) => (
+            <a
+              href={`/servers/${s.slug}`}
+              class={`grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-4 px-5 py-4 no-underline hover:bg-paper-dark transition-colors ${i > 0 ? "border-t border-rule" : ""}`}
+            >
+              <div class="min-w-0">
+                <div class="font-serif text-lg text-ink leading-tight">
+                  {s.name || s.slug}
+                </div>
+                <div class="font-mono text-xs text-ink-muted mt-1 truncate">
+                  {s.did}
+                </div>
+                {s.description && (
+                  <p class="text-sm text-ink-muted mt-2 line-clamp-2 leading-relaxed">
+                    {s.description}
+                  </p>
+                )}
+              </div>
+              <div class="flex md:flex-col md:items-end gap-3 md:gap-1 text-xs font-sans text-ink-muted whitespace-nowrap">
+                <span>{s.receipt_count.toLocaleString()} receipts</span>
+                <span>{s.agent_count.toLocaleString()} agents</span>
+              </div>
+              <div class="flex items-center md:justify-end">
+                {s.deactivated ? (
+                  <StatusPill status="fail" label="Deactivated" />
+                ) : s.last_active_at ? (
+                  <StatusPill status="pass" label="Active" />
+                ) : (
+                  <StatusPill status="skipped" label="Pending" />
+                )}
+              </div>
+            </a>
+          ))}
+        </div>
+
+        <nav class="mt-8 flex items-center justify-between text-sm font-sans text-ink-muted">
+          <div>{totalShown.toLocaleString()} on this page</div>
+          <div class="flex items-center gap-3">
+            {cursor && (
+              <a class="btn-ghost" href="/servers">First page</a>
+            )}
+            {hasMore && nextCursor && (
+              <a
+                class="btn"
+                href={`/servers?${new URLSearchParams({
+                  cursor: nextCursor,
+                  ...(q ? { q } : {}),
+                  ...(category ? { category } : {}),
+                  ...(hasReceipts ? { has_receipts: "true" } : {}),
+                }).toString()}`}
+              >
+                Next page →
+              </a>
+            )}
+          </div>
+        </nav>
+      </>
+    )}
+  </div>
+</Base>
