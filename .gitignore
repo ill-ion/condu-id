@@ -28,3 +28,7 @@ wrangler.toml.local
 # OS
 .DS_Store
 Thumbs.db
+
+# Local secrets and deploy config
+keys/
+wrangler.toml

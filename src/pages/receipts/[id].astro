@@ -8,12 +8,18 @@ import DefList from "@components/DefList.astro";
 import DefRow from "@components/DefRow.astro";
 import CodeBlock from "@components/CodeBlock.astro";
 import Verifier from "@components/Verifier.tsx";
+import VerifierPaste from "@components/VerifierPaste.tsx";
 import { api, ApiClientError } from "@lib/api/client";
 import type { Receipt } from "@lib/api/types";
 
 const { id } = Astro.params as { id: string };
 
+// Best-effort fetch. Mirrors the homepage's degradation pattern: a real
+// 404 still redirects to the index (the id is well-formed but unknown),
+// but a network or 5xx failure renders a degraded shell with the
+// paste-JSON Verifier instead of a 500.
 let receipt: Receipt | null = null;
+let degraded = false;
 try {
   receipt = await api.getReceipt(id);
 } catch (e) {
@@ -21,167 +27,203 @@ try {
     Astro.response.status = 404;
     return Astro.redirect("/receipts", 302);
   }
-  throw e;
+  // Anything else â€” NXDOMAIN, 5xx, Cloudflare 1016, abort â€” fall
+  // through to the degraded shell. Log so build/runtime output shows it.
+  console.warn("[receipt] live fetch degraded:", e);
+  degraded = true;
 }
-if (!receipt) return Astro.redirect("/receipts", 302);
+if (!receipt && !degraded) return Astro.redirect("/receipts", 302);
 
-const created = new Date(receipt.created_at).toLocaleString();
-const cluster = receipt.anchor?.cluster;
-const cleanReceipt = JSON.stringify(receipt.receipt, null, 2);
+const created = receipt ? new Date(receipt.created_at).toLocaleString() : null;
+const cluster = receipt?.anchor?.cluster;
+const cleanReceipt = receipt ? JSON.stringify(receipt.receipt, null, 2) : null;
 ---
 
-<Base title={`Receipt ${receipt.id}`} description="Verifiable RCPT receipt — re-verified in your browser.">
+<Base
+  title={receipt ? `Receipt ${receipt.id}` : "Verify a receipt"}
+  description="Verifiable RCPT receipt â€” re-verified in your browser."
+>
   <div class="container-page py-16">
     <nav class="text-sm font-sans text-ink-muted mb-2">
       <a class="link" href="/receipts">Receipts</a>
       <span class="px-2">/</span>
-      <span class="font-mono">{receipt.id}</span>
+      <span class="font-mono">{receipt ? receipt.id : id}</span>
     </nav>
-    <PageHeader
-      eyebrow="RCPT receipt"
-      title={receipt.receipt.action_type}
-    >
-      <div class="mt-4 flex flex-wrap items-center gap-3 text-sm font-sans">
-        {receipt.anchor ? (
-          <StatusPill status="pass" label="Anchored on Solana" />
-        ) : (
-          <StatusPill status="skipped" label="Pending anchor" />
-        )}
-        <span class="text-ink-muted">·</span>
-        <span class="text-ink-muted">created {created}</span>
-        {receipt.identity.server_slug && (
-          <>
-            <span class="text-ink-muted">·</span>
-            <a class="link" href={`/servers/${receipt.identity.server_slug}`}>
-              {receipt.identity.server_slug}
-            </a>
-          </>
-        )}
-        {receipt.identity.agent_slug && (
-          <>
-            <span class="text-ink-muted">/</span>
-            <a class="link" href={`/agents/${receipt.identity.agent_slug}`}>
-              {receipt.identity.agent_slug}
-            </a>
-          </>
-        )}
-      </div>
-    </PageHeader>
 
-    <div class="grid lg:grid-cols-5 gap-12">
-      {/* ── verifier (the showcase) ─────────────────────────────── */}
-      <section class="lg:col-span-3 space-y-10">
-        <Verifier client:load receipt={receipt} cluster={cluster} />
-
-        <div>
-          <div class="label mb-3">Canonical signed body</div>
-          <p class="text-sm text-ink-muted mb-3 leading-relaxed">
-            Below is the receipt body verbatim — the exact bytes that were
-            JCS-canonicalized and signed. Copy this and feed it to
-            <a class="link" href="https://github.com/ill-ion/rcpt-protocol">rcpt-protocol</a>
-            to re-verify in any language.
-          </p>
-          <CodeBlock>
-            <span>{cleanReceipt}</span>
-          </CodeBlock>
+    {receipt ? (
+      <PageHeader
+        eyebrow="RCPT receipt"
+        title={receipt.receipt.action_type}
+      >
+        <div class="mt-4 flex flex-wrap items-center gap-3 text-sm font-sans">
+          {receipt.anchor ? (
+            <StatusPill status="pass" label="Anchored on Solana" />
+          ) : (
+            <StatusPill status="skipped" label="Pending anchor" />
+          )}
+          <span class="text-ink-muted">Â·</span>
+          <span class="text-ink-muted">created {created}</span>
+          {receipt.identity.server_slug && (
+            <>
+              <span class="text-ink-muted">Â·</span>
+              <a class="link" href={`/servers/${receipt.identity.server_slug}`}>
+                {receipt.identity.server_slug}
+              </a>
+            </>
+          )}
+          {receipt.identity.agent_slug && (
+            <>
+              <span class="text-ink-muted">/</span>
+              <a class="link" href={`/agents/${receipt.identity.agent_slug}`}>
+                {receipt.identity.agent_slug}
+              </a>
+            </>
+          )}
         </div>
-      </section>
-
-      {/* ── metadata sidebar ────────────────────────────────────── */}
-      <aside class="lg:col-span-2 space-y-10">
-        <div>
-          <div class="label mb-3">Receipt</div>
-          <DefList>
-            <DefRow label="Receipt ID">
-              <span class="font-mono break-all">{receipt.id}</span>
-            </DefRow>
-            <DefRow label="Action type">
-              <span class="font-mono">{receipt.receipt.action_type}</span>
-            </DefRow>
-            <DefRow label="RCPT version">{receipt.receipt.rcpt_version}</DefRow>
-            <DefRow label="Issued at">
-              {new Date(receipt.receipt.issued_at).toLocaleString()}
-            </DefRow>
-            <DefRow label="Signed by">
-              <span class="font-mono break-all">{receipt.receipt.signed_by}</span>
-            </DefRow>
-            {receipt.receipt.subject_did && (
-              <DefRow label="Subject DID">
-                <span class="font-mono break-all">{receipt.receipt.subject_did}</span>
-              </DefRow>
-            )}
-            {receipt.receipt.input_hash && (
-              <DefRow label="Input hash">
-                <span class="font-mono break-all text-xs">{receipt.receipt.input_hash}</span>
-              </DefRow>
-            )}
-            {receipt.receipt.output_hash && (
-              <DefRow label="Output hash">
-                <span class="font-mono break-all text-xs">{receipt.receipt.output_hash}</span>
-              </DefRow>
-            )}
-          </DefList>
+      </PageHeader>
+    ) : (
+      <PageHeader eyebrow="RCPT receipt" title="Verify a receipt">
+        <div class="mt-4 flex items-center gap-3 text-sm font-sans">
+          <StatusPill status="skipped" label="Resolver unavailable" />
+          <span class="text-ink-muted italic">
+            Live receipt lookup is offline. Verifier still works on
+            pasted JSON.
+          </span>
         </div>
+      </PageHeader>
+    )}
 
-        {receipt.anchor && (
+    {receipt ? (
+      <div class="grid lg:grid-cols-5 gap-12">
+        {/* â”€â”€ verifier (the showcase) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        <section class="lg:col-span-3 space-y-10">
+          <Verifier client:load receipt={receipt} cluster={cluster} />
+
           <div>
-            <div class="label mb-3">Solana anchor</div>
+            <div class="label mb-3">Canonical signed body</div>
+            <p class="text-sm text-ink-muted mb-3 leading-relaxed">
+              Below is the receipt body verbatim â€” the exact bytes that were
+              JCS-canonicalized and signed. Copy this and feed it to
+              <a class="link" href="https://github.com/ill-ion/rcpt-protocol">rcpt-protocol</a>
+              to re-verify in any language.
+            </p>
+            <CodeBlock>
+              <span>{cleanReceipt}</span>
+            </CodeBlock>
+          </div>
+        </section>
+
+        {/* â”€â”€ metadata sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        <aside class="lg:col-span-2 space-y-10">
+          <div>
+            <div class="label mb-3">Receipt</div>
             <DefList>
-              <DefRow label="Cluster">
-                <span class="font-mono">{receipt.anchor.cluster}</span>
+              <DefRow label="Receipt ID">
+                <span class="font-mono break-all">{receipt.id}</span>
               </DefRow>
-              <DefRow label="Slot">
-                <span class="font-mono">{receipt.anchor.solana_slot.toLocaleString()}</span>
+              <DefRow label="Action type">
+                <span class="font-mono">{receipt.receipt.action_type}</span>
               </DefRow>
-              <DefRow label="Anchored at">
-                {new Date(receipt.anchor.anchored_at).toLocaleString()}
+              <DefRow label="RCPT version">{receipt.receipt.rcpt_version}</DefRow>
+              <DefRow label="Issued at">
+                {new Date(receipt.receipt.issued_at).toLocaleString()}
               </DefRow>
-              <DefRow label="Tx signature">
-                <span class="font-mono break-all text-xs">{receipt.anchor.solana_signature}</span>
+              <DefRow label="Signed by">
+                <span class="font-mono break-all">{receipt.receipt.signed_by}</span>
               </DefRow>
-              <DefRow label="Merkle root">
-                <a class="link font-mono break-all text-xs" href={`/anchors/${receipt.anchor.merkle_root}`}>
-                  {receipt.anchor.merkle_root}
-                </a>
-              </DefRow>
-              {receipt.anchor.explorer_url && (
-                <DefRow label="Explorer">
-                  <a class="link" href={receipt.anchor.explorer_url} target="_blank" rel="noopener noreferrer">
-                    Open in Solana Explorer ↗
+              {receipt.receipt.subject_did && (
+                <DefRow label="Subject DID">
+                  <span class="font-mono break-all">{receipt.receipt.subject_did}</span>
+                </DefRow>
+              )}
+              {receipt.receipt.input_hash && (
+                <DefRow label="Input hash">
+                  <span class="font-mono break-all text-xs">{receipt.receipt.input_hash}</span>
+                </DefRow>
+              )}
+              {receipt.receipt.output_hash && (
+                <DefRow label="Output hash">
+                  <span class="font-mono break-all text-xs">{receipt.receipt.output_hash}</span>
+                </DefRow>
+              )}
+            </DefList>
+          </div>
+
+          {receipt.anchor && (
+            <div>
+              <div class="label mb-3">Solana anchor</div>
+              <DefList>
+                <DefRow label="Cluster">
+                  <span class="font-mono">{receipt.anchor.cluster}</span>
+                </DefRow>
+                <DefRow label="Slot">
+                  <span class="font-mono">{receipt.anchor.solana_slot.toLocaleString()}</span>
+                </DefRow>
+                <DefRow label="Anchored at">
+                  {new Date(receipt.anchor.anchored_at).toLocaleString()}
+                </DefRow>
+                <DefRow label="Tx signature">
+                  <span class="font-mono break-all text-xs">{receipt.anchor.solana_signature}</span>
+                </DefRow>
+                <DefRow label="Merkle root">
+                  <a class="link font-mono break-all text-xs" href={`/anchors/${receipt.anchor.merkle_root}`}>
+                    {receipt.anchor.merkle_root}
+                  </a>
+                </DefRow>
+                {receipt.anchor.explorer_url && (
+                  <DefRow label="Explorer">
+                    <a class="link" href={receipt.anchor.explorer_url} target="_blank" rel="noopener noreferrer">
+                      Open in Solana Explorer â†—
+                    </a>
+                  </DefRow>
+                )}
+              </DefList>
+            </div>
+          )}
+
+          <div>
+            <div class="label mb-3">Resolver enrichment</div>
+            <p class="text-xs text-ink-muted mb-3 leading-relaxed italic">
+              Untrusted metadata, returned by the Condu.ID resolver for
+              navigation. Not part of the signed body.
+            </p>
+            <DefList>
+              {receipt.identity.server_did && (
+                <DefRow label="Server DID">
+                  <span class="font-mono break-all text-xs">{receipt.identity.server_did}</span>
+                </DefRow>
+              )}
+              {receipt.identity.agent_did && (
+                <DefRow label="Agent DID">
+                  <span class="font-mono break-all text-xs">{receipt.identity.agent_did}</span>
+                </DefRow>
+              )}
+              {receipt.identity.signer_did_document_url && (
+                <DefRow label="Signer DID doc">
+                  <a class="link font-mono text-xs" href={receipt.identity.signer_did_document_url}>
+                    {receipt.identity.signer_did_document_url}
                   </a>
                 </DefRow>
               )}
             </DefList>
           </div>
-        )}
-
-        <div>
-          <div class="label mb-3">Resolver enrichment</div>
-          <p class="text-xs text-ink-muted mb-3 leading-relaxed italic">
-            Untrusted metadata, returned by the Condu.ID resolver for
-            navigation. Not part of the signed body.
-          </p>
-          <DefList>
-            {receipt.identity.server_did && (
-              <DefRow label="Server DID">
-                <span class="font-mono break-all text-xs">{receipt.identity.server_did}</span>
-              </DefRow>
-            )}
-            {receipt.identity.agent_did && (
-              <DefRow label="Agent DID">
-                <span class="font-mono break-all text-xs">{receipt.identity.agent_did}</span>
-              </DefRow>
-            )}
-            {receipt.identity.signer_did_document_url && (
-              <DefRow label="Signer DID doc">
-                <a class="link font-mono text-xs" href={receipt.identity.signer_did_document_url}>
-                  {receipt.identity.signer_did_document_url}
-                </a>
-              </DefRow>
-            )}
-          </DefList>
+        </aside>
+      </div>
+    ) : (
+      // Degraded shell: api unreachable. Single column, Verifier in
+      // paste mode. No sidebar â€” without the resolver we have nothing
+      // honest to put in it.
+      <div class="max-w-3xl">
+        <div class="border border-warn bg-warn-soft px-4 py-3 mb-8 text-sm font-sans text-ink leading-relaxed">
+          The Condu.ID resolver is currently unreachable, so we couldn't
+          look up <span class="font-mono">{id}</span>. The Verifier
+          itself is pure client-side crypto â€” paste any receipt below
+          and it will run locally against a public Solana RPC. This is
+          the architectural commitment: the browser is authoritative,
+          the server is convenience.
         </div>
-      </aside>
-    </div>
+        <VerifierPaste client:load cluster="devnet" />
+      </div>
+    )}
   </div>
 </Base>

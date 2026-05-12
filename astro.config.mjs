@@ -1,4 +1,4 @@
-import { defineConfig } from "astro/config";
+﻿import { defineConfig } from "astro/config";
 import cloudflare from "@astrojs/cloudflare";
 import tailwind from "@astrojs/tailwind";
 import preact from "@astrojs/preact";
@@ -11,7 +11,7 @@ import preact from "@astrojs/preact";
 //     time during build, but render to static HTML for the `npm run build`
 //     output. The directory and detail routes also work as
 //     `prerender = false` so they pick up newly-anchored receipts without
-//     a redeploy — see individual pages.
+//     a redeploy â€” see individual pages.
 //   - DID document routes (/.well-known/did.json under server / agent
 //     paths) are server-rendered: they pull from api.condu.id at request
 //     time. Cached at the edge via Cache-Control.
@@ -23,7 +23,7 @@ export default defineConfig({
   output: "hybrid",
   adapter: cloudflare({
     imageService: "passthrough",
-    platformProxy: { enabled: true },
+    platformProxy: { enabled: true, configPath: "wrangler.toml" },
   }),
   integrations: [tailwind({ applyBaseStyles: false }), preact({ compat: false })],
   site: "https://condu.id",
@@ -37,3 +37,4 @@ export default defineConfig({
     },
   },
 });
+
