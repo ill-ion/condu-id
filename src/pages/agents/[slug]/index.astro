@@ -13,8 +13,14 @@ import type { Agent, ReceiptSummary } from "@lib/api/types";
 
 const { slug } = Astro.params as { slug: string };
 
+// Best-effort fetch. Mirrors the receipts route's degradation pattern:
+// a real 404 still redirects to /agents (slug is well-formed but
+// unknown), but a network or 5xx failure — including Cloudflare 1016
+// while api.condu.id is unprovisioned — renders a degraded shell
+// instead of throwing a 500.
 let agent: Agent | null = null;
 let receipts: ReceiptSummary[] = [];
+let degraded = false;
 
 try {
   agent = await api.getAgent(slug);
@@ -25,107 +31,154 @@ try {
     Astro.response.status = 404;
     return Astro.redirect("/agents", 302);
   }
-  throw e;
+  // Anything else — NXDOMAIN, 5xx, Cloudflare 1016, abort — fall
+  // through to the degraded shell. Log so build/runtime output shows it.
+  console.warn("[agent] live fetch degraded:", e);
+  degraded = true;
 }
-if (!agent) return Astro.redirect("/agents", 302);
+if (!agent && !degraded) return Astro.redirect("/agents", 302);
 
-const lastActive = agent.last_active_at
+const lastActive = agent?.last_active_at
   ? new Date(agent.last_active_at).toLocaleString()
   : "never";
 ---
 
-<Base title={agent.name || agent.slug} description={`AI agent identity ${agent.did} on Condu.ID.`}>
+<Base
+  title={agent ? (agent.name || agent.slug) : "Agent lookup"}
+  description={agent ? `AI agent identity ${agent.did} on Condu.ID.` : "Condu.ID agent resolver — currently unreachable."}
+>
   <div class="container-page py-16">
     <nav class="text-sm font-sans text-ink-muted mb-2">
       <a class="link" href="/agents">Agents</a>
       <span class="px-2">/</span>
-      <a class="link" href={`/servers/${agent.server_slug}`}>{agent.server_slug}</a>
-      <span class="px-2">/</span>
-      <span>{agent.local_id || agent.slug}</span>
+      {agent ? (
+        <>
+          <a class="link" href={`/servers/${agent.server_slug}`}>{agent.server_slug}</a>
+          <span class="px-2">/</span>
+          <span>{agent.local_id || agent.slug}</span>
+        </>
+      ) : (
+        <span class="font-mono">{slug}</span>
+      )}
     </nav>
-    <PageHeader
-      eyebrow="AI Agent"
-      title={agent.name || agent.slug}
-    >
-      <div class="mt-4 flex flex-wrap items-center gap-3 text-sm font-sans">
-        {agent.deactivated ? (
-          <StatusPill status="fail" label="Deactivated" />
-        ) : (
-          <StatusPill status="pass" label="Active" />
-        )}
-        <span class="text-ink-muted">·</span>
-        <span class="text-ink-muted">{agent.receipt_count.toLocaleString()} receipts</span>
-        <span class="text-ink-muted">·</span>
-        <span class="text-ink-muted">last active {lastActive}</span>
-      </div>
-    </PageHeader>
 
-    <div class="grid lg:grid-cols-3 gap-12">
-      <section class="lg:col-span-2 space-y-10">
-        {agent.description && (
-          <p class="text-lg text-ink-soft leading-relaxed max-w-prose">
-            {agent.description}
-          </p>
-        )}
-
-        <div>
-          <div class="label mb-3">Identity</div>
-          <DefList>
-            <DefRow label="DID">
-              <span class="font-mono break-all">{agent.did}</span>
-            </DefRow>
-            <DefRow label="Parent server DID">
-              <a class="link font-mono break-all" href={`/servers/${agent.server_slug}`}>
-                {agent.parent_did}
-              </a>
-            </DefRow>
-            <DefRow label="DID document">
-              <a class="link font-mono" href={agent.did_document_url}>{agent.did_document_url}</a>
-            </DefRow>
-            <DefRow label="Slug">
-              <span class="font-mono">{agent.slug}</span>
-            </DefRow>
-            <DefRow label="First seen">{new Date(agent.first_seen_at).toLocaleString()}</DefRow>
-          </DefList>
-        </div>
-
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <div class="label">Receipts emitted by this agent</div>
-            <a class="link text-sm font-sans" href={`/agents/${agent.slug}/receipts`}>See all →</a>
+    {agent ? (
+      <>
+        <PageHeader
+          eyebrow="AI Agent"
+          title={agent.name || agent.slug}
+        >
+          <div class="mt-4 flex flex-wrap items-center gap-3 text-sm font-sans">
+            {agent.deactivated ? (
+              <StatusPill status="fail" label="Deactivated" />
+            ) : (
+              <StatusPill status="pass" label="Active" />
+            )}
+            <span class="text-ink-muted">·</span>
+            <span class="text-ink-muted">{agent.receipt_count.toLocaleString()} receipts</span>
+            <span class="text-ink-muted">·</span>
+            <span class="text-ink-muted">last active {lastActive}</span>
           </div>
-          {receipts.length === 0 ? (
-            <EmptyState title="No receipts yet" />
-          ) : (
-            <div class="border border-rule">
-              {receipts.map((r, i) => (
-                <a
-                  href={`/receipts/${r.id}`}
-                  class={`flex items-center gap-4 px-4 py-3 no-underline hover:bg-paper-dark ${i > 0 ? "border-t border-rule" : ""}`}
-                >
-                  <div class="font-mono text-xs text-ink-muted w-32 truncate">{r.id}</div>
-                  <div class="flex-1 text-sm text-ink truncate">{r.action_type}</div>
-                  <StatusPill status={r.anchored ? "pass" : "skipped"} label={r.anchored ? "Anchored" : "Pending"} />
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
+        </PageHeader>
 
-      <aside>
-        <div class="label mb-3">Ask about this agent</div>
-        <p class="text-sm text-ink-muted mb-4 leading-relaxed">
-          Grounded chat — answers are constrained to facts visible in the
-          identity record above. The model will refuse to speculate.
-        </p>
-        <AgentChat
-          client:load
-          agentSlug={agent.slug}
-          agentName={agent.name || agent.slug}
-          agentDID={agent.did}
-        />
-      </aside>
-    </div>
+        <div class="grid lg:grid-cols-3 gap-12">
+          <section class="lg:col-span-2 space-y-10">
+            {agent.description && (
+              <p class="text-lg text-ink-soft leading-relaxed max-w-prose">
+                {agent.description}
+              </p>
+            )}
+
+            <div>
+              <div class="label mb-3">Identity</div>
+              <DefList>
+                <DefRow label="DID">
+                  <span class="font-mono break-all">{agent.did}</span>
+                </DefRow>
+                <DefRow label="Parent server DID">
+                  <a class="link font-mono break-all" href={`/servers/${agent.server_slug}`}>
+                    {agent.parent_did}
+                  </a>
+                </DefRow>
+                <DefRow label="DID document">
+                  <a class="link font-mono" href={agent.did_document_url}>{agent.did_document_url}</a>
+                </DefRow>
+                <DefRow label="Slug">
+                  <span class="font-mono">{agent.slug}</span>
+                </DefRow>
+                <DefRow label="First seen">{new Date(agent.first_seen_at).toLocaleString()}</DefRow>
+              </DefList>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="label">Receipts emitted by this agent</div>
+                <a class="link text-sm font-sans" href={`/agents/${agent.slug}/receipts`}>See all →</a>
+              </div>
+              {receipts.length === 0 ? (
+                <EmptyState title="No receipts yet" />
+              ) : (
+                <div class="border border-rule">
+                  {receipts.map((r, i) => (
+                    <a
+                      href={`/receipts/${r.id}`}
+                      class={`flex items-center gap-4 px-4 py-3 no-underline hover:bg-paper-dark ${i > 0 ? "border-t border-rule" : ""}`}
+                    >
+                      <div class="font-mono text-xs text-ink-muted w-32 truncate">{r.id}</div>
+                      <div class="flex-1 text-sm text-ink truncate">{r.action_type}</div>
+                      <StatusPill status={r.anchored ? "pass" : "skipped"} label={r.anchored ? "Anchored" : "Pending"} />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <aside>
+            <div class="label mb-3">Ask about this agent</div>
+            <p class="text-sm text-ink-muted mb-4 leading-relaxed">
+              Grounded chat — answers are constrained to facts visible in the
+              identity record above. The model will refuse to speculate.
+            </p>
+            <AgentChat
+              client:load
+              agentSlug={agent.slug}
+              agentName={agent.name || agent.slug}
+              agentDID={agent.did}
+            />
+          </aside>
+        </div>
+      </>
+    ) : (
+      <>
+        <PageHeader eyebrow="AI Agent" title="Agent lookup unavailable">
+          <div class="mt-4 flex items-center gap-3 text-sm font-sans">
+            <StatusPill status="skipped" label="Resolver unavailable" />
+            <span class="text-ink-muted italic">
+              Live agent lookup is offline.
+            </span>
+          </div>
+        </PageHeader>
+
+        <div class="max-w-3xl">
+          <div class="border border-warn bg-warn-soft px-4 py-3 mb-8 text-sm font-sans text-ink leading-relaxed">
+            The Condu.ID resolver is currently unreachable, so we couldn’t
+            look up the agent <span class="font-mono">{slug}</span>. Agent
+            identity records are resolver-enriched metadata — they aren’t
+            signed cryptographic material, so there’s no client-side
+            equivalent to the paste-mode Verifier on the receipts route.
+            This page will populate once the resolver is online.
+          </div>
+
+          <p class="text-sm text-ink-muted leading-relaxed mb-2">
+            In the meantime, you can:
+          </p>
+          <ul class="text-sm text-ink leading-relaxed list-disc pl-5 space-y-1">
+            <li><a class="link" href="/agents">Browse the agent index</a></li>
+            <li><a class="link" href="/receipts">Verify a receipt</a> — the Verifier is pure client-side crypto and runs against a public Solana RPC, no resolver required</li>
+          </ul>
+        </div>
+      </>
+    )}
   </div>
 </Base>
